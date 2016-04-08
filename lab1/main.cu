@@ -8,6 +8,8 @@
 #include "SyncedMemory.h"
 #include "Timer.h"
 #include "counting.h"
+#include <iostream>
+
 using namespace std;
 
 #define CHECK {\
@@ -15,11 +17,10 @@ using namespace std;
 	if (e != cudaSuccess) {\
 		printf("At " __FILE__ ":%d, %s\n", __LINE__, cudaGetErrorString(e));\
 		abort();\
-	}\
+		}\
 }
 
-template <typename Engine>
-tuple<vector<char>, vector<int>, vector<int>> GenerateTestCase(Engine &eng, const int N) {
+template <typename Engine> tuple<vector<char>, vector<int>, vector<int>> GenerateTestCase(Engine &eng, const int N) {
 	poisson_distribution<int> pd(14.0);
 	bernoulli_distribution bd(0.1);
 	uniform_int_distribution<int> id1(1, 20);
@@ -29,24 +30,24 @@ tuple<vector<char>, vector<int>, vector<int>> GenerateTestCase(Engine &eng, cons
 	auto &text = get<0>(ret);
 	auto &pos = get<1>(ret);
 	auto &head = get<2>(ret);
-	auto gen_rand_word_len = [&] () -> int {
-		return max(1, min(500, pd(eng) - 5 + (bd(eng) ? id1(eng)*20 : 0)));
+	auto gen_rand_word_len = [&]() -> int {
+		return max(1, min(500, pd(eng) - 5 + (bd(eng) ? id1(eng) * 20 : 0)));
 	};
-	auto gen_rand_space_len = [&] () -> int {
+	auto gen_rand_space_len = [&]() -> int {
 		return id2(eng);
 	};
-	auto gen_rand_char = [&] () {
+	auto gen_rand_char = [&]() {
 		return id3(eng);
 	};
-	auto AddWord = [&] () {
+	auto AddWord = [&]() {
 		head.push_back(text.size());
 		int n = gen_rand_word_len();
 		for (int i = 0; i < n; ++i) {
 			text.push_back(gen_rand_char());
-			pos.push_back(i+1);
+			pos.push_back(i + 1);
 		}
 	};
-	auto AddSpace = [&] () {
+	auto AddSpace = [&]() {
 		int n = gen_rand_space_len();
 		for (int i = 0; i < n; ++i) {
 			text.push_back('\n');
@@ -65,11 +66,12 @@ tuple<vector<char>, vector<int>, vector<int>> GenerateTestCase(Engine &eng, cons
 int main(int argc, char **argv)
 {
 	// Initialize random text
-	default_random_engine engine(12345);
-	auto text_pos_head = GenerateTestCase(engine, 40000000); // 40 MB data
+	default_random_engine engine(22349);
+	auto text_pos_head = GenerateTestCase(engine,4000000); // 40 MB data
 	vector<char> &text = get<0>(text_pos_head);
 	vector<int> &pos = get<1>(text_pos_head);
 	vector<int> &head = get<2>(text_pos_head);
+
 
 	// Prepare buffers
 	int n = text.size();
@@ -84,23 +86,53 @@ int main(int argc, char **argv)
 	// Create timers
 	Timer timer_count_position;
 
+
+	
+
 	// Part I
 	timer_count_position.Start();
 	int *pos_yours_gpu = pos_yours_sync.get_gpu_wo();
 	cudaMemset(pos_yours_gpu, 0, sizeof(int)*n);
+	/*for (int i = 0; i<n; i++)
+	{
+		printf("posyourgpu %d=%d \n", i, pos_yours_sync.get_cpu_ro()[i]);
+	}*/
+
+
+
+
 	CountPosition(text_sync.get_gpu_ro(), pos_yours_gpu, n);
+
+
 	CHECK;
+/*	for (int i = 0; i<n; i++)
+	{
+		printf("posyourgpu22 %d=%d\n", i, pos_yours_sync.get_cpu_ro()[i]);
+	}*/
 	timer_count_position.Pause();
 	printf_timer(timer_count_position);
 
 	// Part I check
+
+	/*for (int i = 0; i<n; i++)
+	{
+		printf("%d=%d\n", i, pos_yours_sync.get_cpu_ro()[i]);
+	}*/
 	const int *golden = pos.data();
+
 	const int *yours = pos_yours_sync.get_cpu_ro();
-	int n_match1 = mismatch(golden, golden+n, yours).first - golden;
+	//printf("mis = %d %d", mismatch(golden, golden + n, yours).first, golden);
+	int n_match1 = mismatch(golden, golden + n, yours).first - golden;
+	//printf("mismatch = %d , %d \n",n_match1 , n);
+
+
 	if (n_match1 != n) {
 		puts("Part I WA!");
 		copy_n(golden, n, pos_yours_sync.get_cpu_wo());
 	}
+
+
+	puts("P1 pass");
 
 	// Part II
 	int *head_yours_gpu = head_yours_sync.get_gpu_wo();
@@ -113,16 +145,26 @@ int main(int argc, char **argv)
 		if (n_head != head.size()) {
 			n_head = head.size();
 			puts("Part II WA (wrong number of heads)!");
-		} else {
+		}
+		else {
 			int n_match2 = mismatch(head.begin(), head.end(), head_yours_sync.get_cpu_ro()).first - head.begin();
 			if (n_match2 != n_head) {
 				puts("Part II WA (wrong heads)!");
-			} else {
+			}
+			else {
 				break;
 			}
 		}
 		copy_n(head.begin(), n_head, head_yours_sync.get_cpu_wo());
-	} while(false);
+	} while (false);
+
+	puts("P2 pass");
+	/*
+	for (int i = 0; i<n; i++)
+	{
+		printf("%d=%d\n", i, pos_yours_sync.get_cpu_ro()[i]);
+	}*/
+
 
 	// Part III
 	// Do whatever your want
@@ -130,5 +172,7 @@ int main(int argc, char **argv)
 	CHECK;
 
 	cudaFree(text_gpu);
+
+	system("pause");
 	return 0;
 }
